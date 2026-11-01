@@ -149,7 +149,7 @@ export class AudioManager {
   startDrumroll() {
     this.stopDrumroll();
 
-    this.drumrollAudio.currentTime = 0;
+    this.drumrollAudio.currentTime = 2.2;
 
     this.drumrollAudio.play().catch((error) => {
       console.error("Drumroll playback error:", error);
