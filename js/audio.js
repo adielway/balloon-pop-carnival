@@ -105,5 +105,4 @@ export class AudioManager {
 
   playReveal() {
     this.stopDrumroll();
-    );
 }
