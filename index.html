@@ -321,7 +321,10 @@ class Game {
   }
 
   cleanNames(text) {
-    return text.split(/[\\r\\n,;\\t]+/).map((name) => name.trim()).filter(Boolean);
+    return text
+        .split(/[\r\n,;\t]+/)
+        .map(name => name.trim())
+        .filter(name => name.length > 0);
   }
 
   addOneName() {
