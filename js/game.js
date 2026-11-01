@@ -218,7 +218,7 @@ export class Game {
       }
     }
 
-    if (this.phase === "suspense" && this.elapsed - this.revealAt >= 2.5) {
+    if (this.phase === "suspense" && this.elapsed - this.revealAt >= 2.0) {
       this.phase = "reveal";
       this.revealAt = this.elapsed;
       this.audio.playReveal();
