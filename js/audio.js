@@ -105,9 +105,5 @@ export class AudioManager {
 
   playReveal() {
     this.stopDrumroll();
-    [523, 659, 784, 1047].forEach((frequency, index) =>
-      this.playTone(frequency, 0.42, "triangle", 0.075, index * 0.13)
     );
-    this.playTone(262, 0.65, "sine", 0.045, 0.02);
-  }
 }
