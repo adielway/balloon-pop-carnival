@@ -23,49 +23,739 @@ button{font:700 15px system-ui,sans-serif;border:0;border-radius:12px;padding:12
   <div class="control-row"><button class="start" id="startBtn" disabled>START GAME</button><button class="pop" id="popBtn" hidden>POP A BALLOON</button><button class="next" id="nextBtn" hidden>NEXT ROUND</button><button class="reset" id="resetBtn" hidden>RESET</button><button class="music" id="musicBtn" aria-pressed="false">♫ MUSIC: OFF</button></div>
 </section><p class="hint" id="hint">Add up to 40 names. Names stay secret inside the balloons!</p></main>
 <script>
-(()=>{
-const canvas=document.getElementById('game'),ctx=canvas.getContext('2d');
-const input=document.getElementById('nameInput'),bulkInput=document.getElementById('bulkInput'),addBtn=document.getElementById('addBtn'),bulkBtn=document.getElementById('bulkBtn'),startBtn=document.getElementById('startBtn'),popBtn=document.getElementById('popBtn'),nextBtn=document.getElementById('nextBtn'),resetBtn=document.getElementById('resetBtn'),musicBtn=document.getElementById('musicBtn'),entryArea=document.getElementById('entryArea'),hint=document.getElementById('hint');
-const W=1100,H=720,MAX_NAMES=40,colors=['#ff5d7a','#ffb74d','#5cbeff','#ae7dff','#5bd39e','#ff82d2','#ffdc5c'];
-let names=[],balloons=[],particles=[],phase='input',winner='',target=null,dart=null,revealAt=0,last=0,elapsed=0,audioCtx=null,musicOn=false,musicTimer=null,musicStep=0;
-const rand=(a,b)=>a+Math.random()*(b-a);
-function updateControls(){startBtn.disabled=names.length===0;hint.textContent=`${names.length} / ${MAX_NAMES} names added. Names stay secret inside the balloons!`;}
-function cleanNames(text){return text.split(/[\r\n,;\t]+/).map(s=>s.trim()).filter(Boolean);}
-function addOne(){const n=input.value.trim();if(!n)return;const room=MAX_NAMES-names.length;if(room<=0){hint.textContent=`The limit is ${MAX_NAMES} names.`;return;}names.push(n.slice(0,40));input.value='';updateControls();}
-function addMany(){const incoming=cleanNames(bulkInput.value);if(!incoming.length){hint.textContent='Paste or type a list of names first.';return;}const room=MAX_NAMES-names.length;const accepted=incoming.slice(0,Math.max(0,room)).map(n=>n.slice(0,40));names.push(...accepted);bulkInput.value='';updateControls();const skipped=incoming.length-accepted.length;hint.textContent=skipped?`${accepted.length} names added. ${skipped} skipped because the ${MAX_NAMES}-name limit was reached.`:`Added ${accepted.length} names! You now have ${names.length} names.`;}
-addBtn.onclick=addOne;bulkBtn.onclick=addMany;input.addEventListener('keydown',e=>{if(e.key==='Enter'){e.preventDefault();addOne();}});
-function build(){balloons=[];const count=names.length,cols=count<=8?4:8,xGap=count<=8?170:94,yGap=count<=8?165:66,startX=count<=8?430:365,startY=count<=8?330:285,r=count<=8?37:28;names.forEach((name,i)=>{const row=Math.floor(i/cols),col=i%cols;balloons.push({name,x:startX+col*xGap+(row%2)*8,y:startY+row*yGap,color:colors[i%colors.length],phase:i*.73,popped:false,r});});}
-function showGame(){phase='game';build();entryArea.hidden=true;startBtn.hidden=true;popBtn.hidden=resetBtn.hidden=false;nextBtn.hidden=true;popBtn.disabled=false;}
-startBtn.onclick=()=>{if(names.length)showGame();};
-function reset(){names=[];balloons=[];particles=[];winner='';target=null;dart=null;phase='input';entryArea.hidden=false;startBtn.hidden=popBtn.hidden=nextBtn.hidden=resetBtn.hidden=true;startBtn.disabled=true;input.value='';bulkInput.value='';updateControls();}
-resetBtn.onclick=reset;
-function next(){if(!names.length){reset();return;}showGame();}
-nextBtn.onclick=next;
-function shoot(){if(phase!=='game'||dart||!names.length)return;const choices=balloons.filter(b=>!b.popped);if(!choices.length)return;target=choices[Math.floor(Math.random()*choices.length)];dart={x:220,y:445,progress:0,startX:220,startY:445,endX:target.x,endY:target.y};popBtn.disabled=true;hint.textContent='The dart is on its way...';}
-popBtn.onclick=shoot;
-// Original synthesized carnival soundtrack and effects (no external audio files required).
-function ensureAudio(){if(!audioCtx){const AC=window.AudioContext||window.webkitAudioContext;if(!AC)return null;audioCtx=new AC();}if(audioCtx.state==='suspended')audioCtx.resume();return audioCtx;}
-function tone(freq,start,duration,type='sine',volume=.08,when=0){const ac=ensureAudio();if(!ac)return;const osc=ac.createOscillator(),gain=ac.createGain();osc.type=type;osc.frequency.setValueAtTime(freq,ac.currentTime+when);gain.gain.setValueAtTime(.0001,ac.currentTime+when);gain.gain.exponentialRampToValueAtTime(Math.max(.0002,volume),ac.currentTime+when+.025);gain.gain.exponentialRampToValueAtTime(.0001,ac.currentTime+when+duration);osc.connect(gain);gain.connect(ac.destination);osc.start(ac.currentTime+when);osc.stop(ac.currentTime+when+duration+.04);}
-const melody=[659,784,880,784,659,523,587,659,784,659,587,523,587,659,784,880];
-function musicTick(){if(!musicOn||!audioCtx)return;const note=melody[musicStep%melody.length],t=0;tone(note,0,.22,'triangle',.035,t);if(musicStep%4===0)tone(note/2,0,.34,'sine',.045,t);if(musicStep%4===2)tone(392,0,.12,'sine',.018,t);musicStep++;}
-function setMusic(on){musicOn=on;musicBtn.textContent=on?'♫ MUSIC: ON':'♫ MUSIC: OFF';musicBtn.setAttribute('aria-pressed',String(on));if(on){ensureAudio();if(!musicTimer){musicStep=0;musicTick();musicTimer=setInterval(musicTick,300);}}else if(musicTimer){clearInterval(musicTimer);musicTimer=null;}}
-musicBtn.onclick=()=>setMusic(!musicOn);
-function playPop(){// short airy pop + descending pluck
-const ac=ensureAudio();if(!ac)return;const buffer=ac.createBuffer(1,Math.floor(ac.sampleRate*.12),ac.sampleRate),data=buffer.getChannelData(0);for(let i=0;i<data.length;i++)data[i]=(Math.random()*2-1)*(1-i/data.length);const src=ac.createBufferSource(),filter=ac.createBiquadFilter(),gain=ac.createGain();src.buffer=buffer;filter.type='lowpass';filter.frequency.value=1500;gain.gain.setValueAtTime(.18,ac.currentTime);gain.gain.exponentialRampToValueAtTime(.001,ac.currentTime+.12);src.connect(filter);filter.connect(gain);gain.connect(ac.destination);src.start();tone(520,0,.16,'sine',.045);}
-function playReveal(){// cheerful original three-note carnival fanfare
-[523,659,784,1047].forEach((f,i)=>tone(f,0,.42,'triangle',.075,i*.13));tone(262,0,.65,'sine',.045,.02);}
-function rr(x,y,w,h,r,fill){ctx.fillStyle=fill;ctx.beginPath();ctx.roundRect(x,y,w,h,r);ctx.fill();}
-function drawBackground(t){const g=ctx.createLinearGradient(0,0,0,H);g.addColorStop(0,'#8bd5ff');g.addColorStop(1,'#e5f7ff');ctx.fillStyle=g;ctx.fillRect(0,0,W,H);ctx.fillStyle='#8bd69b';ctx.fillRect(0,625,W,95);ctx.fillStyle='#70c985';for(let i=0;i<14;i++){ctx.beginPath();ctx.arc(i*95,635,55,Math.PI,0);ctx.fill();}
-ctx.fillStyle='#e94f70';ctx.fillRect(0,0,W,125);for(let i=0;i<11;i++){ctx.fillStyle=i%2?'#fff4df':'#e94f70';ctx.fillRect(i*110,0,55,125);}for(let i=0;i<12;i++){ctx.fillStyle=i%2?'#fff4df':'#e94f70';ctx.beginPath();ctx.ellipse(i*100+25,119,53,20,0,0,Math.PI*2);ctx.fill();}
-ctx.strokeStyle='#604b60';ctx.lineWidth=3;ctx.beginPath();for(let i=0;i<5;i++){let x=i*275,y=148+Math.sin(i*1.5)*10;i?ctx.lineTo(x,y):ctx.moveTo(x,y);}ctx.stroke();const lc=['#ffe56c','#ff8aa4','#8ef0ce','#c5a2ff'];for(let i=0;i<13;i++){let x=25+i*88,y=148+Math.sin(i*.7)*10;ctx.shadowBlur=15;ctx.shadowColor=lc[i%4];ctx.fillStyle=lc[i%4];ctx.beginPath();ctx.arc(x,y,8+Math.sin(t*3+i)*1.2,0,Math.PI*2);ctx.fill();ctx.shadowBlur=0;}
-const fc=['#ff6581','#ffcf5e','#66c9f2','#6ed5a0'];for(let i=0;i<9;i++){let x=35+i*125;ctx.fillStyle=fc[i%4];ctx.beginPath();ctx.moveTo(x,166);ctx.lineTo(x+38,166);ctx.lineTo(x+19,197);ctx.closePath();ctx.fill();}for(let i=0;i<4;i++){let x=65+i*300,y=260+(i%2)*70;ctx.fillStyle='rgba(255,255,255,.45)';ctx.beginPath();ctx.arc(x,y,27,0,7);ctx.arc(x+28,y-10,34,0,7);ctx.arc(x+60,y,25,0,7);ctx.fill();}}
-function drawBalloon(b,t){const bob=Math.sin(t*1.5+b.phase)*11,sway=Math.sin(t*.8+b.phase)*7,x=b.x+sway,y=b.y+bob,r=b.r,scale=r/43;ctx.save();ctx.translate(x,y);ctx.scale(.82*scale,1.08*scale);ctx.shadowColor='#48627a55';ctx.shadowBlur=13*scale;ctx.shadowOffsetX=7*scale;ctx.shadowOffsetY=9*scale;const g=ctx.createRadialGradient(-18,-24,3,8,5,53);g.addColorStop(0,'#ffffff');g.addColorStop(.16,b.color);g.addColorStop(.78,b.color);g.addColorStop(1,'#58445d');ctx.fillStyle=g;ctx.beginPath();ctx.ellipse(0,0,43,43,0,0,Math.PI*2);ctx.fill();ctx.shadowColor='transparent';ctx.shadowBlur=0;ctx.shadowOffsetX=0;ctx.shadowOffsetY=0;ctx.fillStyle='rgba(255,255,255,.7)';ctx.beginPath();ctx.ellipse(-18,-22,6,15,-.35,0,Math.PI*2);ctx.fill();ctx.fillStyle='rgba(255,255,255,.9)';ctx.beginPath();ctx.arc(-23,-31,4,0,Math.PI*2);ctx.fill();ctx.restore();ctx.fillStyle=b.color;ctx.beginPath();ctx.moveTo(x-6*scale,y+45*scale);ctx.lineTo(x+6*scale,y+45*scale);ctx.lineTo(x,y+56*scale);ctx.closePath();ctx.fill();ctx.strokeStyle='#788b9a';ctx.lineWidth=Math.max(1,1.5*scale);ctx.beginPath();ctx.moveTo(x,y+55*scale);ctx.bezierCurveTo(x+12*scale,y+70*scale,x-10*scale,y+80*scale,x-2*scale,y+96*scale);ctx.stroke();}
-function drawKid(){ctx.fillStyle='#0002';ctx.beginPath();ctx.ellipse(124,545,65,12,0,0,7);ctx.fill();const body=ctx.createRadialGradient(96,465,5,125,490,65);body.addColorStop(0,'#ffe18c');body.addColorStop(1,'#ed982b');ctx.fillStyle=body;ctx.beginPath();ctx.ellipse(120,490,49,60,0,0,7);ctx.fill();ctx.fillStyle='#e9a779';ctx.fillRect(111,421,25,30);ctx.fillStyle='#e8a27c';ctx.beginPath();ctx.arc(91,395,12,0,7);ctx.arc(161,395,12,0,7);ctx.fill();const skin=ctx.createRadialGradient(113,370,5,128,395,48);skin.addColorStop(0,'#ffe0bd');skin.addColorStop(1,'#e9a779');ctx.fillStyle=skin;ctx.beginPath();ctx.ellipse(126,394,40,46,0,0,7);ctx.fill();ctx.fillStyle='#57321f';ctx.beginPath();ctx.ellipse(126,365,42,27,0,Math.PI,Math.PI*2);ctx.fill();for(let i=0;i<4;i++){ctx.beginPath();ctx.arc(94+i*20,355+(i%2)*-7,14,0,7);ctx.fill();}for(const x of [112,140]){ctx.fillStyle='white';ctx.beginPath();ctx.ellipse(x,390,6,8,0,0,7);ctx.fill();ctx.fillStyle='#392b29';ctx.beginPath();ctx.arc(x+1,392,3.5,0,7);ctx.fill();}ctx.fillStyle='#ed8b91';for(const x of [100,151]){ctx.beginPath();ctx.arc(x,410,7,0,7);ctx.fill();}ctx.strokeStyle='#8d4f49';ctx.lineWidth=2.5;ctx.beginPath();ctx.arc(127,407,11,.2,Math.PI-.2);ctx.stroke();const tube=ctx.createLinearGradient(150,410,150,430);tube.addColorStop(0,'#f3d18b');tube.addColorStop(.45,'#a8753d');tube.addColorStop(1,'#70471f');rr(153,414,112,15,6,tube);ctx.fillStyle='#70471f';ctx.fillRect(253,412,7,19);ctx.fillStyle='#ffe0a0';ctx.fillRect(159,416,88,3);}
-function drawDart(){if(!dart)return;const p=dart.progress,x=dart.startX+(dart.endX-dart.startX)*p,y=dart.startY+(dart.endY-dart.startY)*p;ctx.save();ctx.translate(x,y);ctx.rotate(Math.atan2(dart.endY-dart.startY,dart.endX-dart.startX));ctx.fillStyle='#5d5147';ctx.fillRect(-19,-2,31,4);ctx.fillStyle='#d7dce0';ctx.beginPath();ctx.moveTo(12,-5);ctx.lineTo(23,0);ctx.lineTo(12,5);ctx.fill();ctx.restore();}
-function drawParticles(){for(const p of particles){ctx.globalAlpha=Math.max(0,p.life);ctx.fillStyle=p.color;ctx.beginPath();ctx.arc(p.x,p.y,p.r,0,7);ctx.fill();}ctx.globalAlpha=1;}
-function draw(){const t=elapsed;drawBackground(t);ctx.textAlign='center';ctx.fillStyle='#fff';ctx.font='900 34px system-ui';ctx.shadowColor='#853c60';ctx.shadowBlur=3;ctx.fillText('BALLOON POP CARNIVAL',550,235);ctx.shadowBlur=0;if(phase==='input'){ctx.fillStyle='#4e5572';ctx.font='600 23px system-ui';ctx.fillText('Add the names, then let the carnival choose!',550,300);ctx.fillText(`Names added: ${names.length} / ${MAX_NAMES}`,550,355);ctx.font='18px system-ui';names.slice(0,12).forEach((n,i)=>{const x=300+(i%4)*170,y=405+Math.floor(i/4)*48;rr(x-75,y-18,150,35,10,'#fffaf0');ctx.fillStyle='#55445b';ctx.fillText(`${i+1}. ${n}`,x,y+6);});if(names.length>12){ctx.fillStyle='#806b79';ctx.font='16px system-ui';ctx.fillText(`and ${names.length-12} more names...`,550,570);}}
-else{ctx.textAlign='left';ctx.fillStyle='#49304d';ctx.font='bold 21px system-ui';ctx.fillText(`Names remaining: ${names.length}`,28,270);balloons.forEach(b=>{if(!b.popped)drawBalloon(b,t);});drawKid();drawDart();drawParticles();if(phase==='suspense'||phase==='reveal'){rr(270,300,560,210,25,'rgba(255,250,240,.95)');ctx.textAlign='center';if(phase==='suspense'){const pulse=1+Math.sin(t*9)*.035;ctx.save();ctx.translate(550,390);ctx.scale(pulse,pulse);ctx.fillStyle='#e84f76';ctx.font='900 38px system-ui';ctx.fillText('WHO WILL IT BE?',0,0);ctx.restore();ctx.fillStyle='#806b79';ctx.font='20px system-ui';ctx.fillText('The carnival is choosing...',550,440);}else{const s=Math.min(1,(t-revealAt)*2.5);ctx.fillStyle='#62556b';ctx.font='bold 25px system-ui';ctx.fillText('THE PICKED NAME IS',550,365);ctx.save();ctx.translate(550,430);ctx.scale(.5+.5*s,.5+.5*s);ctx.fillStyle='#e84f76';ctx.font='900 48px system-ui';ctx.fillText(winner,0,0);ctx.restore();ctx.fillStyle='#62556b';ctx.font='19px system-ui';ctx.fillText(`Remaining names: ${names.length}`,550,475);}}}}
-function frame(now){const dt=Math.min((now-last)/1000||0,.05);last=now;elapsed+=dt;if(dart){dart.progress+=dt*2.5;if(dart.progress>=1){dart=null;if(target){target.popped=true;winner=target.name;playPop();const cx=target.x,cy=target.y;for(let i=0;i<36;i++){const a=i*Math.PI*2/36,s=rand(90,220);particles.push({x:cx,y:cy,vx:Math.cos(a)*s,vy:Math.sin(a)*s,life:1,color:target.color,r:rand(3,7)});}const index=names.indexOf(winner);if(index!==-1)names.splice(index,1);phase='suspense';revealAt=elapsed;popBtn.disabled=false;popBtn.hidden=true;nextBtn.hidden=true;hint.textContent='The carnival is choosing...';}}}if(phase==='suspense'&&elapsed-revealAt>=1.6){phase='reveal';revealAt=elapsed;playReveal();nextBtn.hidden=false;nextBtn.textContent=names.length?'NEXT ROUND':'FINISH';hint.textContent='The surprise has been revealed!';}particles.forEach(p=>{p.life-=dt*1.3;p.x+=p.vx*dt;p.y+=p.vy*dt;p.vy+=180*dt;});particles=particles.filter(p=>p.life>0);draw();requestAnimationFrame(frame);}
-updateControls();requestAnimationFrame(frame);
-})();
+/* =========================
+   BALLOON POP CARNIVAL
+   Object-oriented structure:
+   - AudioManager: music and sound effects
+   - Balloon: balloon data and drawing
+   - Particle: pop animation particles
+   - Game: game state, controls, animation and rendering
+   ========================= */
+
+class AudioManager {
+  constructor() {
+    this.context = null;
+    this.musicOn = false;
+    this.musicTimer = null;
+    this.musicStep = 0;
+    this.drumrollTimer = null;
+    this.drumrollNoise = null;
+  }
+
+  getContext() {
+    if (!this.context) {
+      const AudioContextClass = window.AudioContext || window.webkitAudioContext;
+      if (!AudioContextClass) return null;
+      this.context = new AudioContextClass();
+    }
+    if (this.context.state === "suspended") this.context.resume();
+    return this.context;
+  }
+
+  playTone(frequency, duration, type = "sine", volume = 0.08, delay = 0) {
+    const audio = this.getContext();
+    if (!audio) return;
+    const oscillator = audio.createOscillator();
+    const gain = audio.createGain();
+    const start = audio.currentTime + delay;
+
+    oscillator.type = type;
+    oscillator.frequency.setValueAtTime(frequency, start);
+    gain.gain.setValueAtTime(0.0001, start);
+    gain.gain.exponentialRampToValueAtTime(Math.max(0.0002, volume), start + 0.025);
+    gain.gain.exponentialRampToValueAtTime(0.0001, start + duration);
+
+    oscillator.connect(gain);
+    gain.connect(audio.destination);
+    oscillator.start(start);
+    oscillator.stop(start + duration + 0.04);
+  }
+
+  playMusicNote() {
+    if (!this.musicOn || !this.context) return;
+    const melody = [659,784,880,784,659,523,587,659,784,659,587,523,587,659,784,880];
+    const note = melody[this.musicStep % melody.length];
+    this.playTone(note, 0.22, "triangle", 0.035);
+    if (this.musicStep % 4 === 0) this.playTone(note / 2, 0.34, "sine", 0.045);
+    if (this.musicStep % 4 === 2) this.playTone(392, 0.12, "sine", 0.018);
+    this.musicStep++;
+  }
+
+  toggleMusic(enabled) {
+    this.musicOn = enabled;
+    if (enabled) {
+      this.getContext();
+      if (!this.musicTimer) {
+        this.musicStep = 0;
+        this.playMusicNote();
+        this.musicTimer = setInterval(() => this.playMusicNote(), 300);
+      }
+    } else if (this.musicTimer) {
+      clearInterval(this.musicTimer);
+      this.musicTimer = null;
+    }
+    return this.musicOn;
+  }
+
+  playPop() {
+    const audio = this.getContext();
+    if (!audio) return;
+    const buffer = audio.createBuffer(1, Math.floor(audio.sampleRate * 0.12), audio.sampleRate);
+    const samples = buffer.getChannelData(0);
+    for (let i = 0; i < samples.length; i++) samples[i] = (Math.random() * 2 - 1) * (1 - i / samples.length);
+
+    const source = audio.createBufferSource();
+    const filter = audio.createBiquadFilter();
+    const gain = audio.createGain();
+    source.buffer = buffer;
+    filter.type = "lowpass";
+    filter.frequency.value = 1500;
+    gain.gain.setValueAtTime(0.18, audio.currentTime);
+    gain.gain.exponentialRampToValueAtTime(0.001, audio.currentTime + 0.12);
+    source.connect(filter);
+    filter.connect(gain);
+    gain.connect(audio.destination);
+    source.start();
+    this.playTone(520, 0.16, "sine", 0.045);
+  }
+
+  // A snare-like roll that speeds up during the suspense countdown.
+  startDrumroll() {
+    this.stopDrumroll();
+    const audio = this.getContext();
+    if (!audio) return;
+
+    const makeHit = (volume = 0.12) => {
+      const length = Math.floor(audio.sampleRate * 0.055);
+      const buffer = audio.createBuffer(1, length, audio.sampleRate);
+      const data = buffer.getChannelData(0);
+      for (let i = 0; i < length; i++) {
+        const fade = 1 - i / length;
+        data[i] = (Math.random() * 2 - 1) * fade * fade;
+      }
+      const source = audio.createBufferSource();
+      const filter = audio.createBiquadFilter();
+      const gain = audio.createGain();
+      source.buffer = buffer;
+      filter.type = "highpass";
+      filter.frequency.value = 850;
+      gain.gain.setValueAtTime(volume, audio.currentTime);
+      gain.gain.exponentialRampToValueAtTime(0.001, audio.currentTime + 0.055);
+      source.connect(filter);
+      filter.connect(gain);
+      gain.connect(audio.destination);
+      source.start();
+    };
+
+    let beat = 0;
+    const roll = () => {
+      if (!this.drumrollTimer) return;
+      makeHit(0.08 + Math.random() * 0.07);
+      beat++;
+      const interval = Math.max(48, 145 - beat * 3);
+      this.drumrollTimer = setTimeout(roll, interval);
+    };
+    this.drumrollTimer = setTimeout(roll, 30);
+  }
+
+  stopDrumroll() {
+    if (this.drumrollTimer) clearTimeout(this.drumrollTimer);
+    this.drumrollTimer = null;
+  }
+
+  playReveal() {
+    this.stopDrumroll();
+    [523, 659, 784, 1047].forEach((frequency, index) =>
+      this.playTone(frequency, 0.42, "triangle", 0.075, index * 0.13)
+    );
+    this.playTone(262, 0.65, "sine", 0.045, 0.02);
+  }
+}
+
+class Balloon {
+  constructor(name, x, y, color, phase, radius) {
+    Object.assign(this, { name, x, y, color, phase, radius, popped: false });
+  }
+
+  draw(ctx, time) {
+    const bob = Math.sin(time * 1.5 + this.phase) * 11;
+    const sway = Math.sin(time * 0.8 + this.phase) * 7;
+    const x = this.x + sway;
+    const y = this.y + bob;
+    const scale = this.radius / 43;
+
+    ctx.save();
+    ctx.translate(x, y);
+    ctx.scale(0.82 * scale, 1.08 * scale);
+    ctx.shadowColor = "#48627a55";
+    ctx.shadowBlur = 13 * scale;
+    ctx.shadowOffsetX = 7 * scale;
+    ctx.shadowOffsetY = 9 * scale;
+
+    const gradient = ctx.createRadialGradient(-18, -24, 3, 8, 5, 53);
+    gradient.addColorStop(0, "#ffffff");
+    gradient.addColorStop(0.16, this.color);
+    gradient.addColorStop(0.78, this.color);
+    gradient.addColorStop(1, "#58445d");
+    ctx.fillStyle = gradient;
+    ctx.beginPath();
+    ctx.ellipse(0, 0, 43, 43, 0, 0, Math.PI * 2);
+    ctx.fill();
+
+    ctx.shadowColor = "transparent";
+    ctx.shadowBlur = 0;
+    ctx.shadowOffsetX = 0;
+    ctx.shadowOffsetY = 0;
+    ctx.fillStyle = "rgba(255,255,255,.7)";
+    ctx.beginPath();
+    ctx.ellipse(-18, -22, 6, 15, -0.35, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.fillStyle = "rgba(255,255,255,.9)";
+    ctx.beginPath();
+    ctx.arc(-23, -31, 4, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.restore();
+
+    ctx.fillStyle = this.color;
+    ctx.beginPath();
+    ctx.moveTo(x - 6 * scale, y + 45 * scale);
+    ctx.lineTo(x + 6 * scale, y + 45 * scale);
+    ctx.lineTo(x, y + 56 * scale);
+    ctx.closePath();
+    ctx.fill();
+
+    ctx.strokeStyle = "#788b9a";
+    ctx.lineWidth = Math.max(1, 1.5 * scale);
+    ctx.beginPath();
+    ctx.moveTo(x, y + 55 * scale);
+    ctx.bezierCurveTo(x + 12 * scale, y + 70 * scale, x - 10 * scale, y + 80 * scale, x - 2 * scale, y + 96 * scale);
+    ctx.stroke();
+  }
+}
+
+class Particle {
+  constructor(x, y, color) {
+    const angle = Math.random() * Math.PI * 2;
+    const speed = 90 + Math.random() * 130;
+    Object.assign(this, {
+      x, y, color,
+      vx: Math.cos(angle) * speed,
+      vy: Math.sin(angle) * speed,
+      life: 1,
+      radius: 3 + Math.random() * 4
+    });
+  }
+
+  update(deltaTime) {
+    this.life -= deltaTime * 1.3;
+    this.x += this.vx * deltaTime;
+    this.y += this.vy * deltaTime;
+    this.vy += 180 * deltaTime;
+  }
+
+  draw(ctx) {
+    ctx.globalAlpha = Math.max(0, this.life);
+    ctx.fillStyle = this.color;
+    ctx.beginPath();
+    ctx.arc(this.x, this.y, this.radius, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.globalAlpha = 1;
+  }
+}
+
+class Game {
+  constructor() {
+    this.canvas = document.getElementById("game");
+    this.ctx = this.canvas.getContext("2d");
+    this.audio = new AudioManager();
+
+    this.elements = {
+      input: document.getElementById("nameInput"),
+      bulkInput: document.getElementById("bulkInput"),
+      addButton: document.getElementById("addBtn"),
+      bulkButton: document.getElementById("bulkBtn"),
+      startButton: document.getElementById("startBtn"),
+      popButton: document.getElementById("popBtn"),
+      nextButton: document.getElementById("nextBtn"),
+      resetButton: document.getElementById("resetBtn"),
+      musicButton: document.getElementById("musicBtn"),
+      entryArea: document.getElementById("entryArea"),
+      hint: document.getElementById("hint")
+    };
+
+    this.width = 1100;
+    this.height = 720;
+    this.maxNames = 40;
+    this.colors = ["#ff5d7a", "#ffb74d", "#5cbeff", "#ae7dff", "#5bd39e", "#ff82d2", "#ffdc5c"];
+    this.names = [];
+    this.balloons = [];
+    this.particles = [];
+    this.phase = "input";
+    this.winner = "";
+    this.target = null;
+    this.dart = null;
+    this.revealAt = 0;
+    this.lastFrame = 0;
+    this.elapsed = 0;
+
+    this.bindEvents();
+    this.updateControls();
+    requestAnimationFrame((time) => this.animate(time));
+  }
+
+  bindEvents() {
+    const ui = this.elements;
+    ui.addButton.addEventListener("click", () => this.addOneName());
+    ui.bulkButton.addEventListener("click", () => this.addManyNames());
+    ui.input.addEventListener("keydown", (event) => {
+      if (event.key === "Enter") {
+        event.preventDefault();
+        this.addOneName();
+      }
+    });
+    ui.startButton.addEventListener("click", () => this.startGame());
+    ui.popButton.addEventListener("click", () => this.shootDart());
+    ui.nextButton.addEventListener("click", () => this.nextRound());
+    ui.resetButton.addEventListener("click", () => this.resetGame());
+    ui.musicButton.addEventListener("click", () => this.toggleMusic());
+  }
+
+  cleanNames(text) {
+    return text.split(/[\\r\\n,;\\t]+/).map((name) => name.trim()).filter(Boolean);
+  }
+
+  addOneName() {
+    const name = this.elements.input.value.trim();
+    if (!name) return;
+    if (this.names.length >= this.maxNames) {
+      this.elements.hint.textContent = `The limit is ${this.maxNames} names.`;
+      return;
+    }
+    this.names.push(name.slice(0, 40));
+    this.elements.input.value = "";
+    this.updateControls();
+  }
+
+  addManyNames() {
+    const incoming = this.cleanNames(this.elements.bulkInput.value);
+    if (!incoming.length) {
+      this.elements.hint.textContent = "Paste or type a list of names first.";
+      return;
+    }
+    const room = this.maxNames - this.names.length;
+    const accepted = incoming.slice(0, Math.max(0, room)).map((name) => name.slice(0, 40));
+    this.names.push(...accepted);
+    this.elements.bulkInput.value = "";
+    this.updateControls();
+    const skipped = incoming.length - accepted.length;
+    this.elements.hint.textContent = skipped
+      ? `${accepted.length} names added. ${skipped} skipped because the ${this.maxNames}-name limit was reached.`
+      : `Added ${accepted.length} names! You now have ${this.names.length} names.`;
+  }
+
+  updateControls() {
+    this.elements.startButton.disabled = this.names.length === 0;
+    this.elements.hint.textContent = `${this.names.length} / ${this.maxNames} names added. Names stay secret inside the balloons!`;
+  }
+
+  buildBalloons() {
+    this.balloons = [];
+    const count = this.names.length;
+    const columns = count <= 8 ? 4 : 8;
+    const xGap = count <= 8 ? 170 : 94;
+    const yGap = count <= 8 ? 165 : 66;
+    const startX = count <= 8 ? 430 : 365;
+    const startY = count <= 8 ? 330 : 285;
+    const radius = count <= 8 ? 37 : 28;
+
+    this.names.forEach((name, index) => {
+      const row = Math.floor(index / columns);
+      const column = index % columns;
+      this.balloons.push(new Balloon(
+        name,
+        startX + column * xGap + (row % 2) * 8,
+        startY + row * yGap,
+        this.colors[index % this.colors.length],
+        index * 0.73,
+        radius
+      ));
+    });
+  }
+
+  startGame() {
+    if (!this.names.length) return;
+    this.phase = "game";
+    this.buildBalloons();
+    this.elements.entryArea.hidden = true;
+    this.elements.startButton.hidden = true;
+    this.elements.popButton.hidden = false;
+    this.elements.resetButton.hidden = false;
+    this.elements.nextButton.hidden = true;
+    this.elements.popButton.disabled = false;
+  }
+
+  resetGame() {
+    this.names = [];
+    this.balloons = [];
+    this.particles = [];
+    this.winner = "";
+    this.target = null;
+    this.dart = null;
+    this.phase = "input";
+    this.elements.entryArea.hidden = false;
+    this.elements.startButton.hidden = true;
+    this.elements.popButton.hidden = true;
+    this.elements.nextButton.hidden = true;
+    this.elements.resetButton.hidden = true;
+    this.elements.startButton.disabled = true;
+    this.elements.input.value = "";
+    this.elements.bulkInput.value = "";
+    this.updateControls();
+  }
+
+  nextRound() {
+    if (!this.names.length) {
+      this.resetGame();
+      return;
+    }
+    this.startGame();
+  }
+
+  shootDart() {
+    if (this.phase !== "game" || this.dart || !this.names.length) return;
+    const available = this.balloons.filter((balloon) => !balloon.popped);
+    if (!available.length) return;
+
+    this.target = available[Math.floor(Math.random() * available.length)];
+    this.dart = {
+      x: 220, y: 445, progress: 0,
+      startX: 220, startY: 445,
+      endX: this.target.x, endY: this.target.y
+    };
+    this.elements.popButton.disabled = true;
+    this.elements.hint.textContent = "The dart is on its way...";
+  }
+
+  toggleMusic() {
+    const enabled = !this.audio.musicOn;
+    this.audio.toggleMusic(enabled);
+    this.elements.musicButton.textContent = enabled ? "♫ MUSIC: ON" : "♫ MUSIC: OFF";
+    this.elements.musicButton.setAttribute("aria-pressed", String(enabled));
+  }
+
+  finishPop() {
+    if (!this.target) return;
+    this.target.popped = true;
+    this.winner = this.target.name;
+    this.audio.playPop();
+
+    for (let i = 0; i < 36; i++) {
+      this.particles.push(new Particle(this.target.x, this.target.y, this.target.color));
+    }
+
+    // Remove only the selected occurrence, even if two students share a name.
+    const selectedIndex = this.names.indexOf(this.winner);
+    if (selectedIndex !== -1) this.names.splice(selectedIndex, 1);
+
+    this.phase = "suspense";
+    this.revealAt = this.elapsed;
+    this.elements.popButton.disabled = false;
+    this.elements.popButton.hidden = true;
+    this.elements.nextButton.hidden = true;
+    this.elements.hint.textContent = "The carnival is choosing...";
+    this.audio.startDrumroll();
+  }
+
+  update(deltaTime) {
+    if (this.dart) {
+      this.dart.progress += deltaTime * 2.5;
+      if (this.dart.progress >= 1) {
+        this.dart = null;
+        this.finishPop();
+      }
+    }
+
+    if (this.phase === "suspense" && this.elapsed - this.revealAt >= 2.5) {
+      this.phase = "reveal";
+      this.revealAt = this.elapsed;
+      this.audio.playReveal();
+      this.elements.nextButton.hidden = false;
+      this.elements.nextButton.textContent = this.names.length ? "NEXT ROUND" : "FINISH";
+      this.elements.hint.textContent = "The surprise has been revealed!";
+    }
+
+    this.particles.forEach((particle) => particle.update(deltaTime));
+    this.particles = this.particles.filter((particle) => particle.life > 0);
+  }
+
+  drawRoundedRect(x, y, width, height, radius, fill) {
+    const ctx = this.ctx;
+    ctx.fillStyle = fill;
+    ctx.beginPath();
+    ctx.roundRect(x, y, width, height, radius);
+    ctx.fill();
+  }
+
+  drawBackground(time) {
+    const ctx = this.ctx;
+    const gradient = ctx.createLinearGradient(0, 0, 0, this.height);
+    gradient.addColorStop(0, "#8bd5ff");
+    gradient.addColorStop(1, "#e5f7ff");
+    ctx.fillStyle = gradient;
+    ctx.fillRect(0, 0, this.width, this.height);
+    ctx.fillStyle = "#8bd69b";
+    ctx.fillRect(0, 625, this.width, 95);
+    ctx.fillStyle = "#70c985";
+    for (let i = 0; i < 14; i++) {
+      ctx.beginPath();
+      ctx.arc(i * 95, 635, 55, Math.PI, 0);
+      ctx.fill();
+    }
+
+    ctx.fillStyle = "#e94f70";
+    ctx.fillRect(0, 0, this.width, 125);
+    for (let i = 0; i < 11; i++) {
+      ctx.fillStyle = i % 2 ? "#fff4df" : "#e94f70";
+      ctx.fillRect(i * 110, 0, 55, 125);
+    }
+    for (let i = 0; i < 12; i++) {
+      ctx.fillStyle = i % 2 ? "#fff4df" : "#e94f70";
+      ctx.beginPath();
+      ctx.ellipse(i * 100 + 25, 119, 53, 20, 0, 0, Math.PI * 2);
+      ctx.fill();
+    }
+
+    ctx.strokeStyle = "#604b60";
+    ctx.lineWidth = 3;
+    ctx.beginPath();
+    for (let i = 0; i < 5; i++) {
+      const x = i * 275;
+      const y = 148 + Math.sin(i * 1.5) * 10;
+      i ? ctx.lineTo(x, y) : ctx.moveTo(x, y);
+    }
+    ctx.stroke();
+
+    const lightColors = ["#ffe56c", "#ff8aa4", "#8ef0ce", "#c5a2ff"];
+    for (let i = 0; i < 13; i++) {
+      const x = 25 + i * 88;
+      const y = 148 + Math.sin(i * 0.7) * 10;
+      ctx.shadowBlur = 15;
+      ctx.shadowColor = lightColors[i % 4];
+      ctx.fillStyle = lightColors[i % 4];
+      ctx.beginPath();
+      ctx.arc(x, y, 8 + Math.sin(time * 3 + i) * 1.2, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.shadowBlur = 0;
+    }
+
+    const flagColors = ["#ff6581", "#ffcf5e", "#66c9f2", "#6ed5a0"];
+    for (let i = 0; i < 9; i++) {
+      const x = 35 + i * 125;
+      ctx.fillStyle = flagColors[i % 4];
+      ctx.beginPath();
+      ctx.moveTo(x, 166);
+      ctx.lineTo(x + 38, 166);
+      ctx.lineTo(x + 19, 197);
+      ctx.closePath();
+      ctx.fill();
+    }
+
+    for (let i = 0; i < 4; i++) {
+      const x = 65 + i * 300;
+      const y = 260 + (i % 2) * 70;
+      ctx.fillStyle = "rgba(255,255,255,.45)";
+      ctx.beginPath();
+      ctx.arc(x, y, 27, 0, 7);
+      ctx.arc(x + 28, y - 10, 34, 0, 7);
+      ctx.arc(x + 60, y, 25, 0, 7);
+      ctx.fill();
+    }
+  }
+
+  drawKid() {
+    const ctx = this.ctx;
+    ctx.fillStyle = "#0002";
+    ctx.beginPath();
+    ctx.ellipse(124, 545, 65, 12, 0, 0, 7);
+    ctx.fill();
+    const body = ctx.createRadialGradient(96, 465, 5, 125, 490, 65);
+    body.addColorStop(0, "#ffe18c");
+    body.addColorStop(1, "#ed982b");
+    ctx.fillStyle = body;
+    ctx.beginPath();
+    ctx.ellipse(120, 490, 49, 60, 0, 0, 7);
+    ctx.fill();
+    ctx.fillStyle = "#e9a779";
+    ctx.fillRect(111, 421, 25, 30);
+    ctx.fillStyle = "#e8a27c";
+    ctx.beginPath();
+    ctx.arc(91, 395, 12, 0, 7);
+    ctx.arc(161, 395, 12, 0, 7);
+    ctx.fill();
+    const skin = ctx.createRadialGradient(113, 370, 5, 128, 395, 48);
+    skin.addColorStop(0, "#ffe0bd");
+    skin.addColorStop(1, "#e9a779");
+    ctx.fillStyle = skin;
+    ctx.beginPath();
+    ctx.ellipse(126, 394, 40, 46, 0, 0, 7);
+    ctx.fill();
+    ctx.fillStyle = "#57321f";
+    ctx.beginPath();
+    ctx.ellipse(126, 365, 42, 27, 0, Math.PI, Math.PI * 2);
+    ctx.fill();
+    for (let i = 0; i < 4; i++) {
+      ctx.beginPath();
+      ctx.arc(94 + i * 20, 355 + (i % 2) * -7, 14, 0, 7);
+      ctx.fill();
+    }
+    for (const x of [112, 140]) {
+      ctx.fillStyle = "white";
+      ctx.beginPath();
+      ctx.ellipse(x, 390, 6, 8, 0, 0, 7);
+      ctx.fill();
+      ctx.fillStyle = "#392b29";
+      ctx.beginPath();
+      ctx.arc(x + 1, 392, 3.5, 0, 7);
+      ctx.fill();
+    }
+    ctx.fillStyle = "#ed8b91";
+    for (const x of [100, 151]) {
+      ctx.beginPath();
+      ctx.arc(x, 410, 7, 0, 7);
+      ctx.fill();
+    }
+    ctx.strokeStyle = "#8d4f49";
+    ctx.lineWidth = 2.5;
+    ctx.beginPath();
+    ctx.arc(127, 407, 11, 0.2, Math.PI - 0.2);
+    ctx.stroke();
+    const tube = ctx.createLinearGradient(150, 410, 150, 430);
+    tube.addColorStop(0, "#f3d18b");
+    tube.addColorStop(0.45, "#a8753d");
+    tube.addColorStop(1, "#70471f");
+    this.drawRoundedRect(153, 414, 112, 15, 6, tube);
+    ctx.fillStyle = "#70471f";
+    ctx.fillRect(253, 412, 7, 19);
+    ctx.fillStyle = "#ffe0a0";
+    ctx.fillRect(159, 416, 88, 3);
+  }
+
+  drawDart() {
+    if (!this.dart) return;
+    const ctx = this.ctx;
+    const dart = this.dart;
+    const x = dart.startX + (dart.endX - dart.startX) * dart.progress;
+    const y = dart.startY + (dart.endY - dart.startY) * dart.progress;
+    ctx.save();
+    ctx.translate(x, y);
+    ctx.rotate(Math.atan2(dart.endY - dart.startY, dart.endX - dart.startX));
+    ctx.fillStyle = "#5d5147";
+    ctx.fillRect(-19, -2, 31, 4);
+    ctx.fillStyle = "#d7dce0";
+    ctx.beginPath();
+    ctx.moveTo(12, -5);
+    ctx.lineTo(23, 0);
+    ctx.lineTo(12, 5);
+    ctx.fill();
+    ctx.restore();
+  }
+
+  drawInputScreen() {
+    const ctx = this.ctx;
+    ctx.fillStyle = "#4e5572";
+    ctx.font = "600 23px system-ui";
+    ctx.fillText("Add the names, then let the carnival choose!", 550, 300);
+    ctx.fillText(`Names added: ${this.names.length} / ${this.maxNames}`, 550, 355);
+    ctx.font = "18px system-ui";
+    this.names.slice(0, 12).forEach((name, index) => {
+      const x = 300 + (index % 4) * 170;
+      const y = 405 + Math.floor(index / 4) * 48;
+      this.drawRoundedRect(x - 75, y - 18, 150, 35, 10, "#fffaf0");
+      ctx.fillStyle = "#55445b";
+      ctx.fillText(`${index + 1}. ${name}`, x, y + 6);
+    });
+    if (this.names.length > 12) {
+      ctx.fillStyle = "#806b79";
+      ctx.font = "16px system-ui";
+      ctx.fillText(`and ${this.names.length - 12} more names...`, 550, 570);
+    }
+  }
+
+  drawResultPanel() {
+    const ctx = this.ctx;
+    this.drawRoundedRect(270, 300, 560, 210, 25, "rgba(255,250,240,.95)");
+    ctx.textAlign = "center";
+    if (this.phase === "suspense") {
+      const pulse = 1 + Math.sin(this.elapsed * 9) * 0.035;
+      ctx.save();
+      ctx.translate(550, 390);
+      ctx.scale(pulse, pulse);
+      ctx.fillStyle = "#e84f76";
+      ctx.font = "900 38px system-ui";
+      ctx.fillText("WHO WILL IT BE?", 0, 0);
+      ctx.restore();
+      ctx.fillStyle = "#806b79";
+      ctx.font = "20px system-ui";
+      ctx.fillText("The carnival is choosing...", 550, 440);
+    } else {
+      const scale = Math.min(1, (this.elapsed - this.revealAt) * 2.5);
+      ctx.fillStyle = "#62556b";
+      ctx.font = "bold 25px system-ui";
+      ctx.fillText("THE PICKED NAME IS", 550, 365);
+      ctx.save();
+      ctx.translate(550, 430);
+      ctx.scale(0.5 + 0.5 * scale, 0.5 + 0.5 * scale);
+      ctx.fillStyle = "#e84f76";
+      ctx.font = "900 48px system-ui";
+      ctx.fillText(this.winner, 0, 0);
+      ctx.restore();
+      ctx.fillStyle = "#62556b";
+      ctx.font = "19px system-ui";
+      ctx.fillText(`Remaining names: ${this.names.length}`, 550, 475);
+    }
+  }
+
+  draw() {
+    const ctx = this.ctx;
+    this.drawBackground(this.elapsed);
+    ctx.textAlign = "center";
+    ctx.fillStyle = "#fff";
+    ctx.font = "900 34px system-ui";
+    ctx.shadowColor = "#853c60";
+    ctx.shadowBlur = 3;
+    ctx.fillText("BALLOON POP CARNIVAL", 550, 235);
+    ctx.shadowBlur = 0;
+
+    if (this.phase === "input") {
+      this.drawInputScreen();
+      return;
+    }
+
+    ctx.textAlign = "left";
+    ctx.fillStyle = "#49304d";
+    ctx.font = "bold 21px system-ui";
+    ctx.fillText(`Names remaining: ${this.names.length}`, 28, 270);
+    this.balloons.forEach((balloon) => {
+      if (!balloon.popped) balloon.draw(ctx, this.elapsed);
+    });
+    this.drawKid();
+    this.drawDart();
+    this.particles.forEach((particle) => particle.draw(ctx));
+
+    if (this.phase === "suspense" || this.phase === "reveal") this.drawResultPanel();
+  }
+
+  animate(timestamp) {
+    const deltaTime = Math.min((timestamp - this.lastFrame) / 1000 || 0, 0.05);
+    this.lastFrame = timestamp;
+    this.elapsed += deltaTime;
+    this.update(deltaTime);
+    this.draw();
+    requestAnimationFrame((time) => this.animate(time));
+  }
+}
+
+window.addEventListener("DOMContentLoaded", () => {
+  window.balloonPopGame = new Game();
+});
 </script></body></html>
