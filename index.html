@@ -12,6 +12,7 @@ header{text-align:center;padding:18px 12px 12px;background:linear-gradient(90deg
 .controls{padding:16px;display:flex;flex-wrap:wrap;gap:10px;justify-content:center;align-items:center;background:#fffaf0}.entry-area{width:100%;display:grid;grid-template-columns:minmax(0,1fr) minmax(220px,.8fr);gap:12px;align-items:stretch}.single-entry,.bulk-entry{min-width:0}.single-entry{display:flex;gap:8px;align-items:flex-start}.bulk-entry{display:flex;flex-direction:column;gap:7px}input,textarea{width:100%;font:inherit;border:2px solid #e9c6a8;border-radius:12px;padding:12px 14px;outline:none;background:white;color:var(--ink)}textarea{resize:vertical;min-height:100px}input:focus,textarea:focus{border-color:#ed7090;box-shadow:0 0 0 3px #ed709033}.bulk-entry label{font-size:13px;font-weight:700;color:#806b79}
 button{font:700 15px system-ui,sans-serif;border:0;border-radius:12px;padding:12px 18px;color:white;cursor:pointer;box-shadow:0 4px 0 #0002;transition:transform .12s,filter .12s}button:hover{filter:brightness(1.06);transform:translateY(-1px)}button:active{transform:translateY(2px);box-shadow:none}button:disabled{opacity:.45;cursor:not-allowed;transform:none}.add{background:#35a879}.bulk{background:#279b8b}.start,.next{background:#3988d8}.pop{background:#e94f75}.reset{background:#7b8195}.music{background:#8058a8}.hint{text-align:center;color:#806b79;font-size:13px;padding:0 12px 14px;margin:0}.control-row{display:flex;flex-wrap:wrap;justify-content:center;gap:10px;width:100%}.small-note{font-size:12px;color:#8a7782;margin:0}
 @media(max-width:650px){body{padding:6px}.app{border-width:3px;border-radius:18px}.stage-wrap{padding:7px}.controls{padding:12px}.entry-area{grid-template-columns:1fr}.single-entry{flex-direction:column}.single-entry button{width:100%}.control-row button{flex:1 1 40%}}
+#youtubeDrumroll{position:fixed;width:200px;height:200px;left:-10000px;top:0;pointer-events:none}
 </style></head>
 <body><main class="app"><header><h1>🎪 BALLOON POP CARNIVAL 🎈</h1><p>Pop a balloon and discover who's the lucky one!</p></header>
 <div class="stage-wrap"><div class="stage"><canvas id="game" width="1100" height="720" aria-label="Balloon Pop Carnival game"></canvas></div></div>
@@ -22,6 +23,19 @@ button{font:700 15px system-ui,sans-serif;border:0;border-radius:12px;padding:12
   </div>
   <div class="control-row"><button class="start" id="startBtn" disabled>START GAME</button><button class="pop" id="popBtn" hidden>POP A BALLOON</button><button class="next" id="nextBtn" hidden>NEXT ROUND</button><button class="reset" id="resetBtn" hidden>RESET</button><button class="music" id="musicBtn" aria-pressed="false">♫ MUSIC: OFF</button></div>
 </section><p class="hint" id="hint">Add up to 40 names. Names stay secret inside the balloons!</p></main>
+  
+<!-- YouTube's embedded player needs a real 200x200 viewport. It is kept off-canvas. -->
+<div id="youtubeDrumroll" aria-hidden="true"></div>
+<script>
+  window.youtubeApiReady = false;
+  window.onYouTubeIframeAPIReady = () => {
+    window.youtubeApiReady = true;
+    if (window.balloonPopGame?.audio) {
+      window.balloonPopGame.audio.createYouTubePlayer();
+    }
+  };
+</script>
+<script src="https://www.youtube.com/iframe_api"></script>
 <script>
 /* =========================
    BALLOON POP CARNIVAL
@@ -40,6 +54,37 @@ class AudioManager {
     this.musicStep = 0;
     this.drumrollTimer = null;
     this.drumrollNoise = null;
+
+    this.youtubePlayer = null;
+    this.youtubeReady = false;
+    this.drumrollFallbackTimer = null;
+
+    if (window.youtubeApiReady) this.createYouTubePlayer();
+  }
+
+  createYouTubePlayer() {
+    if (this.youtubePlayer || !window.YT?.Player) return;
+
+    this.youtubePlayer = new YT.Player("youtubeDrumroll", {
+      height: "200",
+      width: "200",
+      videoId: "2ViZqQkddCc",
+      playerVars: {
+        autoplay: 0,
+        controls: 0,
+        playsinline: 1,
+        rel: 0
+      },
+      events: {
+        onReady: () => {
+          this.youtubeReady = true;
+        },
+        onError: (event) => {
+          console.warn("YouTube drumroll could not be embedded. Error:", event.data);
+          this.youtubeReady = false;
+        }
+      }
+    });
   }
 
   getContext() {
@@ -119,19 +164,28 @@ class AudioManager {
     this.playTone(520, 0.16, "sine", 0.045);
   }
 
-  // A snare-like roll that speeds up during the suspense countdown.
+  // Starts on the POP button click so the browser recognizes the user's action.
   startDrumroll() {
     this.stopDrumroll();
+
+    if (this.youtubeReady && this.youtubePlayer) {
+      this.youtubePlayer.seekTo(0, true);
+      this.youtubePlayer.playVideo();
+      return;
+    }
+
+    // Fallback roll in case YouTube is blocked, unavailable, or not ready yet.
     const audio = this.getContext();
     if (!audio) return;
 
-    const makeHit = (volume = 0.12) => {
+    let beat = 0;
+    const playFallbackBeat = () => {
+      if (this.drumrollFallbackTimer === null) return;
       const length = Math.floor(audio.sampleRate * 0.055);
       const buffer = audio.createBuffer(1, length, audio.sampleRate);
-      const data = buffer.getChannelData(0);
+      const samples = buffer.getChannelData(0);
       for (let i = 0; i < length; i++) {
-        const fade = 1 - i / length;
-        data[i] = (Math.random() * 2 - 1) * fade * fade;
+        samples[i] = (Math.random() * 2 - 1) * (1 - i / length);
       }
       const source = audio.createBufferSource();
       const filter = audio.createBiquadFilter();
@@ -139,28 +193,31 @@ class AudioManager {
       source.buffer = buffer;
       filter.type = "highpass";
       filter.frequency.value = 850;
-      gain.gain.setValueAtTime(volume, audio.currentTime);
+      gain.gain.setValueAtTime(0.09, audio.currentTime);
       gain.gain.exponentialRampToValueAtTime(0.001, audio.currentTime + 0.055);
       source.connect(filter);
       filter.connect(gain);
       gain.connect(audio.destination);
       source.start();
+
+      beat++;
+      this.drumrollFallbackTimer = setTimeout(
+        playFallbackBeat,
+        Math.max(48, 145 - beat * 3)
+      );
     };
 
-    let beat = 0;
-    const roll = () => {
-      if (!this.drumrollTimer) return;
-      makeHit(0.08 + Math.random() * 0.07);
-      beat++;
-      const interval = Math.max(48, 145 - beat * 3);
-      this.drumrollTimer = setTimeout(roll, interval);
-    };
-    this.drumrollTimer = setTimeout(roll, 30);
+    this.drumrollFallbackTimer = setTimeout(playFallbackBeat, 0);
   }
 
   stopDrumroll() {
-    if (this.drumrollTimer) clearTimeout(this.drumrollTimer);
-    this.drumrollTimer = null;
+    if (this.youtubePlayer && this.youtubeReady) {
+      this.youtubePlayer.pauseVideo();
+    }
+    if (this.drumrollFallbackTimer !== null) {
+      clearTimeout(this.drumrollFallbackTimer);
+      this.drumrollFallbackTimer = null;
+    }
   }
 
   playReveal() {
@@ -429,6 +486,8 @@ class Game {
     const available = this.balloons.filter((balloon) => !balloon.popped);
     if (!available.length) return;
 
+    this.audio.startDrumroll();
+
     this.target = available[Math.floor(Math.random() * available.length)];
     this.dart = {
       x: 220, y: 445, progress: 0,
@@ -466,7 +525,6 @@ class Game {
     this.elements.popButton.hidden = true;
     this.elements.nextButton.hidden = true;
     this.elements.hint.textContent = "The carnival is choosing...";
-    this.audio.startDrumroll();
   }
 
   update(deltaTime) {
@@ -761,4 +819,5 @@ class Game {
 window.addEventListener("DOMContentLoaded", () => {
   window.balloonPopGame = new Game();
 });
+  
 </script></body></html>
